@@ -1,4 +1,5 @@
 // Top level system including MIPS and memories
+// Unmodified from provided code
 
 module top(input clk, reset);
 

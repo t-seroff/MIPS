@@ -1,3 +1,4 @@
+// ALU from Lab 1 - unmodified
 module alu(input [31:0] a, b, input [2:0] f, output [31:0] y, output zero);
 
 reg [31:0] addB;	// signal fed to full adder
@@ -38,10 +39,7 @@ case(f)
 	default: y_out = 32'h00000000;
 endcase
 end
-
-// If output is zero, toggle zero line
-assign zero = (y == 32'h00000000);
-
+assign zero = (y == 32'h00000000); // If output is zero, toggle zero
 endmodule 
 
 module fullAdder(input [31:0] a, b, input cin, output [31:0] y);
