@@ -1,27 +1,21 @@
-// Testbench for MIPS processor
-// Issues reset signal then cycles clock repeatedly
-module tb;
-reg clk;
-reg reset;
-top topModule(clk, reset); // Instantiate MIPS top module
-reg i;
+module testbench();
+reg clk, reset;
+wire [31:0] instr;
+top uut(clk, reset);
+
 
 initial begin
-	clk = 0;
-	reset = 0;
-	#10;
-	reset = 1;
-	clk = 1;
-	#10
-	reset = 0;
-	clk = 0;
-	for (i = 0; i < 16; i = i + 1) begin
-		// Cycle clock
-		#10
-		clk = 1;
-		#10
-		clk = 0;
-	end
+	reset <= 1; //reset PC
+	#12; reset <= 0;
 end
 
-endmodule 
+always@(posedge clk) begin
+	if(instr == 32'hxxxxxxxx)
+		$stop;
+end
+
+always begin
+clk <= 1; #5; clk <=0; #5;
+end
+
+endmodule

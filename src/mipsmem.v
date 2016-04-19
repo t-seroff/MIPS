@@ -1,20 +1,15 @@
 // External memories used by MIPS single-cycle processor
 
 // Data memory implementation
-module dmem(input          clk, we,
-            input   [31:0] a, wd,
-            output  [31:0] rd);
+module Data_memory(input          clk, write,
+            input   [31:0] address, write_data,
+            output  [31:0] Read_data);
 
-// 64 bit storage of 32-bit words
-reg [31:0] RAM[63:0];
-
-// Always read
-assign rd = RAM[a[31:2]];
-
+ (* ram_style = "block" *) reg [31:0] RAM[63:0];
+assign Read_data = RAM[address[31:2]];
 always @(posedge clk) begin
-	// Write if enabled
-	if (we) begin
-		RAM[a[31:2]] <= wd;
+	if (write) begin
+		RAM[address[31:2]] <= write_data;
 	end
 end
             
@@ -22,16 +17,16 @@ endmodule
 
 
 // Instruction memory (already implemented)
-module imem(input   [5:0]  a,
-            output  [31:0] rd);
+module Inst_memory(input   [5:0]  address,
+            output  [31:0] Read_data);
 
-  reg [31:0] RAM[63:0];
+   (* ram_style = "block" *) reg [31:0] RAM[63:0];
 
-  initial
-    begin
-      $readmemh("memfile2.dat",RAM); // Initialize memory with program
-    end
+  //initial
+   // begin
+   //   $readmemh("memfile.dat",RAM); // initialize memory with test program. Change this with memfile2.dat for the modified code
+   // end
 
-  assign rd = RAM[a]; // word aligned
+  assign Read_data = RAM[address]; // word aligned
 endmodule
 

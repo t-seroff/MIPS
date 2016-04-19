@@ -1,15 +1,15 @@
 // Top level system including MIPS and memories
-// Unmodified from provided code
 
 module top(input clk, reset);
 
-  wire [31:0] pc, instr, readdata;
+  wire [31:0] pc, readdata, instr;
   wire [31:0] writedata, dataadr;
   wire        memwrite;
+
   
   // processor and memories are instantiated here 
-  mips mips(clk, reset, pc, instr, memwrite, dataadr, writedata, readdata);
-  imem imem(pc[7:2], instr);
-  dmem dmem(clk, memwrite, dataadr, writedata, readdata);
+  (* dont_touch = "true" *) mips mips(clk, reset, pc, instr, memwrite, dataadr, writedata, readdata);
+  (* dont_touch = "true" *) Inst_memory imem(pc[7:2], instr);
+  (* dont_touch = "true" *) Data_memory dmem(clk, memwrite, dataadr, writedata, readdata);
 
 endmodule

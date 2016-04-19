@@ -1,107 +1,279 @@
-// Single-cycle MIPS processor
-// Instantiates a controller and a datapath module
+// Pipelined MIPS processor
+// instantiates a controller, datapath module and hazard control unit
 
-module mips(input          clk, reset,
-            output  [31:0] pc,
-            input   [31:0] instr,
-            output         memwrite,
-            output  [31:0] aluout, writedata,
-            input   [31:0] readdata);
+module mips(input          clk, reset,		// From testbench, to data path
+            output  [31:0] PCF,			// To instruction memory, from datapath
+            input   [31:0] InstrF,			// From instruction memory, to datapath
+            output         MemWriteM,			// To data memory, from datapath
+            output  [31:0] ALUOutM, WriteDataM,	// To data memory, from datapath
+            input   [31:0] ReadDataM);		// From data memory, to datapath
 
-  wire        memtoreg, branch,
-               pcsrc, zero,
-               alusrc, regdst, regwrite, jump;
-  wire [2:0]  alucontrol;
+  // Wires between everything
+  wire BranchD;
 
-  // ADDED: wire for zeroExtend signal
-  wire zeroExtend;
+  // Wires between control unit and datapath
+  wire         RegWriteD, MemtoRegD, MemWriteD,
+               ALUSrcD, RegDstD;
+  wire [3:0]   ALUControlD;
+  wire [31:0]  InstrD;
+  wire startMultD, signedMultD;
+  wire [1:0]   mfRegD;
+  wire branchNE;
 
-  // ADDED: zeroExtend output from controller, input to datapath
-  controller c(instr[31:26], instr[5:0], zero,
-               memtoreg, memwrite, pcsrc,
-               alusrc, regdst, regwrite, jump,
-               alucontrol, zeroExtend);
-  datapath dp(clk, reset, memtoreg, pcsrc,
-              alusrc, regdst, regwrite, jump,
-              alucontrol,
-              zero, pc, instr,
-              aluout, writedata, readdata, zeroExtend);
+  //wire         MemWriteM;
+  wire JumpD;
+
+  controller c(InstrD[31:26], InstrD[5:0], 
+               RegWriteD, MemtoRegD, MemWriteD,
+               ALUControlD, ALUSrcD, RegDstD,
+               BranchD, JumpD, startMultD, signedMultD, mfRegD, branchNE);
+              
+  // Wires between hazard unit and datapath
+  wire MemtoRegE, RegWriteE;
+  wire MemtoRegM, RegWriteM, RegWriteW;
+  wire [4:0] RsD, RtD, RsE, RtE;
+  wire [4:0] WriteRegE, WriteRegM, WriteRegW;
+  wire StallF, StallD, FlushE;
+  wire ForwardAD, ForwardBD;
+  wire [1:0] ForwardAE, ForwardBE;
+  wire multReady, startMultE;
+  wire [1:0] mfRegE;
+
+  datapath dp(clk, reset, 
+              RegWriteD, MemtoRegD, MemWriteD,	// from control unit
+              ALUControlD, ALUSrcD, RegDstD,		// from control unit
+              BranchD,                               // from control unit
+              InstrD,					// to control unit
+              PCF, InstrF,                           // to/from instruction memory
+              ALUOutM, WriteDataM, 
+              MemWriteM, ReadDataM,
+              MemtoRegE, RegWriteE, MemtoRegM,
+              RegWriteM, RegWriteW,
+              RsD, RtD, RsE, RtE,
+              WriteRegE, WriteRegM, WriteRegW,
+              StallF, StallD, FlushE,
+              ForwardAD, ForwardBD,
+              ForwardAE, ForwardBE, JumpD,
+	       startMultD, signedMultD, mfRegD,
+	       multReady, mfRegE, startMultE, branchNE
+              );    
+
+
+  Hazard_detector hazard(clk, 
+				BranchD,
+				MemtoRegE,
+				RegWriteE,
+				MemtoRegM,
+				RegWriteM,
+				RegWriteW,
+				RsD,
+				RtD,
+				RsE,
+				RtE,
+				WriteRegE,
+				WriteRegM,
+				WriteRegW,
+				StallF,
+				StallD,
+				FlushE,
+				multReady,
+				mfRegD,
+				startMultE);
+				
+	Data_forwarding forward(clk, 
+                    RegWriteM,
+                    RegWriteW,
+                    RsD,
+                    RtD,
+                    RsE,
+                    RtE,
+                    WriteRegM,
+                    WriteRegW,
+                    ForwardAD,
+                    ForwardBD,
+                    ForwardAE, 
+                    ForwardBE);
+
+   
 endmodule
 
 
 // Controller module
 module controller(input   [5:0] op, funct,
-                  input         zero,
-                  output        memtoreg, memwrite,
-                  output        pcsrc, alusrc,
-                  output        regdst, regwrite,
-                  output        jump,
-                  output  [2:0] alucontrol,
-		   output zeroExtend); // ADDED: ZeroExtend output to datapath
+                  output        RegWrite, MemtoReg,
+                  output        MemWrite, 
+                  output  [3:0] ALUControl,
+                  output        ALUSrc, RegDst,
+                  output        branch,
+		   output 	  jump,
+		   output        startMult, signedMult, 
+		   output  [1:0] mfReg,
+			output branchNE);
 
-wire [1:0] aluop;
-wire branch;
-wire branchNot; // ADDED: branchNot signal for bne operation
+wire [3:0] aluop;
 
-// ADDED: zeroExtend output from main decoder
-mainDecoder dec(op, memtoreg, memwrite, branch, alusrc, regdst, regwrite, jump, aluop, branchNot, zeroExtend);
-aluDecoder aluDec(funct, aluop, alucontrol);
+mainDecoder dec(op, MemtoReg, MemWrite, branch, ALUSrc, RegDst, RegWrite, jump, aluop, branchNE);
+aluDecoder aluDec(funct, aluop, ALUControl, startMult, signedMult, mfReg);
 
-// Modification for branchNot here
-wire zeroOut;
-wire zeroNot;
-not zeroNotGate(zeroNot, zero);
-mux2 #(1) branchMux(zero, zeroNot, branchNot, zeroOut);
-assign pcsrc = branch & zeroOut; // Changed from branch & zero
-
+// assuming that "branch" from single-cycle decoder equivalent to branchD in pipelined
 endmodule
 
 
 // Datapath
 module datapath(input          clk, reset,
-                input          memtoreg, pcsrc,
-                input          alusrc, regdst,
-                input          regwrite, jump,
-                input   [2:0]  alucontrol,
-                output         zero,
-                output  [31:0] pc,
-                input   [31:0] instr,
-                output  [31:0] aluout, writedata,
-                input   [31:0] readdata,
-		 input zeroExtend);	// ADDED: zeroExtend input from controller
+                input          RegWriteD, MemtoRegD,         
+                input          MemWriteD,
+                input   [3:0]  ALUControlD,
+                input          ALUSrcD, RegDstD,
+                input          BranchD,
+                output  [31:0] InstrD,
+                output  [31:0] PCF,
+                input   [31:0] InstrF,
+                output  [31:0] ALUOutM, WriteDataM,
+                output         MemWriteM,
+                input   [31:0] ReadDataM,
+		 output MemtoRegE,
+		 output RegWriteE,
+		 output MemtoRegM,
+		 output RegWriteM,
+		 output RegWriteW,
+		 output [4:0] RsD,
+		 output [4:0] RtD,
+		 output [4:0] RsE,
+		 output [4:0] RtE,
+		 output [4:0] WriteRegE,
+		 output [4:0] WriteRegM,
+		 output [4:0] WriteRegW,
+		 input StallF,
+		 input StallD,
+		 input FlushE,
+		 input ForwardAD,
+		 input ForwardBD,
+		 input [1:0] ForwardAE, 
+		 input [1:0] ForwardBE,
+		 input JumpD,
+		 input startMultD, signedMultD, 
+		 input [1:0] mfRegD,
+		 output multReady,
+		 output [1:0] mfRegE,
+		 output startMultE,
+		input branchNE);
 
-wire [4:0] writereg;
-wire [31:0] pcnext, pcnextbr, pcplus4, pcbranch;
-wire [31:0] signimm, signimmsh;
-wire [31:0] srca, srcb;
-wire [31:0] result;
 
-// Determine next PC
-reset_ff #(32) pcreg(clk, reset, pcnext, pc);
-adder pcadd1(pc, 32'b100, pcplus4);
-sl2 immsh(signimm, signimmsh);
-adder pcadd2(pcplus4, signimmsh, pcbranch); 
-mux2 #(32) pcbrmuc(pcplus4, pcbranch, pcsrc, pcnextbr);
-wire [31:0] pcmuxd0;
-assign pcmuxd0[31:0] = {pcplus4[31:28], instr[25:0], 2'b00};
-mux2 #(32) pcmux(pcnextbr, pcmuxd0, jump, pcnext);
+// FETCH STAGE
+wire PCSrcD;
+wire [31:0] PCPlus4F, PCbranchD;
+wire [31:0] PCnext, PCnotjump;
+wire [31:0] PCJump;
 
-// Register file
-regfile rf(clk, regwrite, instr[25:21], instr[20:16], writereg, result, srca, writedata);
-mux2 #(5) wrmux(instr[20:16], instr[15:11], regdst, writereg);
-mux2 #(32) resmux(aluout, readdata, memtoreg, result);
-signext se(instr[15:0], signimm);
+mux2 #(32) PCmux(PCPlus4F, PCbranchD, PCSrcD, PCnotjump);
+mux2 #(32) PCJumpmux(PCnotjump, PCJump, JumpD, PCnext);
 
-// ADDED: logic for zeroExtend
-wire [31:0] zeroImm;
-zeroext zext(instr[15:0], zeroImm);
-wire [31:0] immOut;
-mux2 #(32) immMux(signimm, zeroImm, zeroExtend, immOut);
+wire notStallF;
+not stallFnot(notStallF, StallF);
+reset_enable_ff #(32) PCreg(clk, reset, notStallF, PCnext, PCF); 
 
-// ALU
-// ADDED: changed signimm to immOut to get signal from mux
-mux2 #(32) srcbmux(writedata, immOut, alusrc, srcb); 
-alu alu(srca, srcb, alucontrol, aluout, zero);
+// PCF goes out to instruction memory, InstrF comes back from instruction memory
+adder PCadd1(PCF, 32'b100, PCPlus4F);
+
+
+
+// DECODE STAGE
+wire [31:0] PCPlus4D;
+
+wire notStallD;
+not stallDnot(notStallD, StallD);
+
+wire clrBufferD;
+assign clrBufferD = PCSrcD | JumpD;
+
+decode_buffer bufferD(clk, reset, clrBufferD, notStallD, InstrF, PCPlus4F, InstrD, PCPlus4D);
+
+wire [31:0] ResultW;
+wire [31:0] RD1D, RD2D;
+wire [31:0] SignImmD, SignImmshD;
+wire [31:0] RD1muxed, RD2muxed;
+wire EqualD, EqualOrNotEqualD;
+
+regfile rf(clk, RegWriteW, reset, InstrD[25:21], InstrD[20:16], WriteRegW, ResultW, RD1D, RD2D);
+signext se(InstrD[15:0], SignImmD);
+sl2 immsh(SignImmD, SignImmshD);
+adder PCadd2(PCPlus4D, SignImmshD, PCbranchD); 
+
+// Determine if branching:
+mux2 #(32) PCmuxRD1(RD1D, ALUOutM, ForwardAD, RD1muxed);
+mux2 #(32) PCmuxRD2(RD2D, ALUOutM, ForwardBD, RD2muxed);
+
+// For Jump
+assign PCJump = {PCPlus4D[31:28], InstrD[25:0], 2'b00};
+
+equality equals(RD1muxed, RD2muxed, EqualD);
+assign EqualOrNotEqualD = (branchNE) ? ~EqualD : EqualD;
+and PCsrcand(PCSrcD, BranchD, EqualOrNotEqualD);
+
+assign RsD = InstrD[25:21];
+assign RtD = InstrD[20:16];
+assign RdD = InstrD[15:11];
+
+// EXECUTE STAGE
+wire         signedMultE;
+//wire [1:0]  mfRegE;
+//wire        RegWriteE, MemtoRegE; 
+wire        MemWriteE, ALUSrcE, RegDstE;
+wire [3:0]  ALUControlE;
+wire [31:0] ALUOutE;
+wire [31:0] RD1E, RD2E;
+wire [31:0] SignImmE;
+wire [4:0]  RdE;
+
+execute_buffer bufferE(clk, reset, FlushE, 
+	startMultD, signedMultD, mfRegD,
+	RegWriteD, MemtoRegD, MemWriteD, ALUControlD,
+	ALUSrcD, RegDstD, RD1D, RD2D, InstrD[25:21], InstrD[20:16], InstrD[15:11], SignImmD,
+	startMultE, signedMultE, mfRegE,
+	RegWriteE, MemtoRegE, MemWriteE, ALUControlE,
+	ALUSrcE, RegDstE, RD1E, RD2E, RsE, RtE, RdE, SignImmE);
+	
+
+wire [31:0] srcaE, srcbE, WriteDataE;
+// wire [4:0] WriteRegE - will be output anyways
+
+mux2 #(5) WriteRegEmux(RtE, RdE, RegDstE, WriteRegE);
+
+mux4 #(32) srcaEmux(RD1E, ResultW, ALUOutM, 32'h00000000, ForwardAE, srcaE);
+mux4 #(32) WriteDataEmux(RD2E, ResultW, ALUOutM, 32'h00000000, ForwardBE, WriteDataE);
+mux2 #(32) srcbEmux(WriteDataE, SignImmE, ALUSrcE, srcbE);
+
+wire [31:0] ALUOut;
+alu alu(srcaE, srcbE, ALUControlE, ALUOut);
+
+wire [63:0] MultOut;
+multiplier mult(srcaE, srcbE, startMultE, signedMultE, clk, reset, MultOut, multReady);
+
+mux4 #(32) resultMux(ALUOut, MultOut[31:0], MultOut[63:32], 32'h00000000, mfRegE, ALUOutE);
+
+// MEMORY STAGE
+
+memory_buffer bufferM(clk, reset, 
+	RegWriteE, MemtoRegE, MemWriteE, ALUOutE, WriteDataE, WriteRegE,
+	RegWriteM, MemtoRegM, MemWriteM, ALUOutM, WriteDataM, WriteRegM);
+
+// (nothing actually needed here!)
+
+
+
+// WRITEBACK STAGE
+wire        MemtoRegW;
+wire [31:0] ReadDataW, ALUOutW;
+
+writeback_buffer bufferW(clk, reset, 
+	RegWriteM, MemtoRegM, ReadDataM, ALUOutM, WriteRegM,
+	RegWriteW, MemtoRegW, ReadDataW, ALUOutW, WriteRegW);
+
+mux2 #(32)  resultmux(ALUOutW, ReadDataW, MemtoRegW, ResultW);
+
 
 endmodule
+
+
 
