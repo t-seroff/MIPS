@@ -127,7 +127,7 @@ always @ (posedge clk, posedge reset)
 endmodule
 
 module execute_buffer(
-		input clk, reset, clr,
+		input clk, reset, clr, enable,
 		input startMultD, signedMultD, 
 		input [1:0] mfRegD,
 		input RegWriteD, MemtoRegD, MemWriteD,
@@ -182,7 +182,7 @@ always @ (posedge clk, posedge reset)
 		SignImmE <= 32'h00000000;
 
 	end
-	else begin
+	else if (enable) begin
 		startMultE <= startMultD;
 		signedMultE <= signedMultD;
 		mfRegE <= mfRegD;
@@ -202,7 +202,7 @@ always @ (posedge clk, posedge reset)
 endmodule
 
 module memory_buffer(
-		input clk, reset,
+		input clk, reset, enable,
 		input RegWriteE, MemtoRegE, MemWriteE,
 		input [31:0] ALUOutE, WriteDataE,
 		input [4:0] WriteRegE,
@@ -220,7 +220,7 @@ always @ (posedge clk, posedge reset)
 		WriteDataM <= 32'h00000000;
 		WriteRegM <= 4'h0;
 	end
-	else begin
+	else if (enable) begin
 		RegWriteM <= RegWriteE;
 		MemtoRegM <= MemtoRegE;
 		MemWriteM <= MemWriteE;
@@ -231,7 +231,7 @@ always @ (posedge clk, posedge reset)
 endmodule
 
 module writeback_buffer(
-		input clk, reset,
+		input clk, reset, clr,
 		input RegWriteM, MemtoRegM,
 		input [31:0] ReadDataM, ALUOutM,
 		input [4:0] WriteRegM,
@@ -242,6 +242,13 @@ module writeback_buffer(
 
 always @ (posedge clk, posedge reset)
 	if (reset) begin
+		RegWriteW <= 0;
+		MemtoRegW <= 0;
+		ReadDataW <= 32'h00000000;
+		ALUOutW <= 32'h00000000;
+		WriteRegW <= 4'h0;
+	end
+	else if (clr) begin
 		RegWriteW <= 0;
 		MemtoRegW <= 0;
 		ReadDataW <= 32'h00000000;

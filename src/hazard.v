@@ -19,22 +19,53 @@ module Hazard_detector(input clk,
 				  output FlushE,
 				  input multReady,
 				  input [1:0] mfReg,
-				  input multStart);
+				  input multStart,
+				  output StallE,
+				  output StallM,
+				  output FlushW,
+				  input MemReady,
+				  input MemWriteM,
+				  input clrBufferD,
+				  output reg FlushD);
 				  
-	wire lwstall, branchstall, multstall;
-	
+	wire lwstall, branchstall, multstall, memstall;
+
+	reg flushJump;
     //Stalls
         assign branchstall = (BranchD && RegWriteE && (WriteRegE == RsD || WriteRegE == RtD)) 
                             || (BranchD && MemtoRegM && (WriteRegM == RsD || WriteRegM == RtD));
+
         assign lwstall = ((RsD == RtE) || (RtD == RtE)) && MemtoRegE;
         
         assign multstall = (((mfReg == 2'b01) || (mfReg == 2'b10)) && (!multReady || multStart));
-    
-        assign StallF = lwstall || branchstall || multstall;
-        assign StallD = lwstall || branchstall || multstall;
-        assign FlushE = lwstall || branchstall || multstall;	
-				  
 
+        assign memstall = (MemWriteM || MemtoRegM) && !(MemReady);
+    
+        assign StallF = lwstall || branchstall || multstall || memstall;
+        assign StallD = lwstall || branchstall || multstall || memstall;
+        assign FlushE = (lwstall || branchstall || multstall) && !memstall ;
+        assign StallE = memstall;
+        assign StallM = memstall;
+        assign FlushW = memstall;
+	  
+	always @(*) begin
+		if(clrBufferD && memstall) begin
+			flushJump <= 1; 
+			FlushD <= 0;
+		end
+		else if (clrBufferD && !memstall) begin
+			FlushD <= 1;
+		end
+
+		if(flushJump && !memstall) begin
+			flushJump <= 0; 
+			FlushD <= 1;
+		end
+		else if (!clrBufferD) begin
+			FlushD <= 0;
+		end
+		
+	end
 endmodule
 
 module Data_forwarding(input clk,

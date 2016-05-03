@@ -6,7 +6,8 @@ module mips(input          clk, reset,		// From testbench, to data path
             input   [31:0] InstrF,			// From instruction memory, to datapath
             output         MemWriteM,			// To data memory, from datapath
             output  [31:0] ALUOutM, WriteDataM,	// To data memory, from datapath
-            input   [31:0] ReadDataM);		// From data memory, to datapath
+            input   [31:0] ReadDataM, 		// From data memory, to datapath
+            input          MemReady);			// From data memory, to datapath
 
   // Wires between everything
   wire BranchD;
@@ -19,7 +20,6 @@ module mips(input          clk, reset,		// From testbench, to data path
   wire startMultD, signedMultD;
   wire [1:0]   mfRegD;
   wire branchNE;
-
   //wire         MemWriteM;
   wire JumpD;
 
@@ -28,7 +28,7 @@ module mips(input          clk, reset,		// From testbench, to data path
                ALUControlD, ALUSrcD, RegDstD,
                BranchD, JumpD, startMultD, signedMultD, mfRegD, branchNE);
               
-  // Wires between hazard unit and datapath
+  // Wires between hazard/forwarding units and datapath
   wire MemtoRegE, RegWriteE;
   wire MemtoRegM, RegWriteM, RegWriteW;
   wire [4:0] RsD, RtD, RsE, RtE;
@@ -38,6 +38,8 @@ module mips(input          clk, reset,		// From testbench, to data path
   wire [1:0] ForwardAE, ForwardBE;
   wire multReady, startMultE;
   wire [1:0] mfRegE;
+  wire StallE, StallM, FlushW;
+  wire clrBufferD, FlushD;
 
   datapath dp(clk, reset, 
               RegWriteD, MemtoRegD, MemWriteD,	// from control unit
@@ -55,7 +57,8 @@ module mips(input          clk, reset,		// From testbench, to data path
               ForwardAD, ForwardBD,
               ForwardAE, ForwardBE, JumpD,
 	       startMultD, signedMultD, mfRegD,
-	       multReady, mfRegE, startMultE, branchNE
+	       multReady, mfRegE, startMultE, branchNE,
+	       StallE, StallM, FlushW, clrBufferD, FlushD
               );    
 
 
@@ -78,7 +81,14 @@ module mips(input          clk, reset,		// From testbench, to data path
 				FlushE,
 				multReady,
 				mfRegD,
-				startMultE);
+				startMultE,
+				StallE,
+				StallM,
+				FlushW,
+				MemReady,
+				MemWriteM,
+				clrBufferD,
+				FlushD);
 				
 	Data_forwarding forward(clk, 
                     RegWriteM,
@@ -157,7 +167,12 @@ module datapath(input          clk, reset,
 		 output multReady,
 		 output [1:0] mfRegE,
 		 output startMultE,
-		input branchNE);
+		 input branchNE,
+		 input StallE,
+		 input StallM,
+		 input FlushW,
+		 output clrBufferD,
+		 input FlushD);
 
 
 // FETCH STAGE
@@ -184,10 +199,9 @@ wire [31:0] PCPlus4D;
 wire notStallD;
 not stallDnot(notStallD, StallD);
 
-wire clrBufferD;
 assign clrBufferD = PCSrcD | JumpD;
 
-decode_buffer bufferD(clk, reset, clrBufferD, notStallD, InstrF, PCPlus4F, InstrD, PCPlus4D);
+decode_buffer bufferD(clk, reset, FlushD, notStallD, InstrF, PCPlus4F, InstrD, PCPlus4D);
 
 wire [31:0] ResultW;
 wire [31:0] RD1D, RD2D;
@@ -226,7 +240,10 @@ wire [31:0] RD1E, RD2E;
 wire [31:0] SignImmE;
 wire [4:0]  RdE;
 
-execute_buffer bufferE(clk, reset, FlushE, 
+wire notStallE;
+not stallEnot(notStallE, StallE);
+
+execute_buffer bufferE(clk, reset, FlushE, notStallE,
 	startMultD, signedMultD, mfRegD,
 	RegWriteD, MemtoRegD, MemWriteD, ALUControlD,
 	ALUSrcD, RegDstD, RD1D, RD2D, InstrD[25:21], InstrD[20:16], InstrD[15:11], SignImmD,
@@ -254,7 +271,10 @@ mux4 #(32) resultMux(ALUOut, MultOut[31:0], MultOut[63:32], 32'h00000000, mfRegE
 
 // MEMORY STAGE
 
-memory_buffer bufferM(clk, reset, 
+wire notStallM;
+not stallMnot(notStallM, StallM);
+
+memory_buffer bufferM(clk, reset, notStallM,
 	RegWriteE, MemtoRegE, MemWriteE, ALUOutE, WriteDataE, WriteRegE,
 	RegWriteM, MemtoRegM, MemWriteM, ALUOutM, WriteDataM, WriteRegM);
 
@@ -266,7 +286,8 @@ memory_buffer bufferM(clk, reset,
 wire        MemtoRegW;
 wire [31:0] ReadDataW, ALUOutW;
 
-writeback_buffer bufferW(clk, reset, 
+
+writeback_buffer bufferW(clk, reset, FlushW,
 	RegWriteM, MemtoRegM, ReadDataM, ALUOutM, WriteRegM,
 	RegWriteW, MemtoRegW, ReadDataW, ALUOutW, WriteRegW);
 
