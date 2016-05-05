@@ -7,7 +7,9 @@ module mips(input          clk, reset,		// From testbench, to data path
             output         MemWriteM,			// To data memory, from datapath
             output  [31:0] ALUOutM, WriteDataM,	// To data memory, from datapath
             input   [31:0] ReadDataM, 		// From data memory, to datapath
-            input          MemReady);			// From data memory, to datapath
+            input          MemReady,			// From data memory, to datapath
+            output         MemtoRegM			// To data memory, from datapath
+            );			
 
   // Wires between everything
   wire BranchD;
@@ -30,7 +32,8 @@ module mips(input          clk, reset,		// From testbench, to data path
               
   // Wires between hazard/forwarding units and datapath
   wire MemtoRegE, RegWriteE;
-  wire MemtoRegM, RegWriteM, RegWriteW;
+  //wire MemtoRegM; // Now output to data memory
+  wire RegWriteM, RegWriteW;
   wire [4:0] RsD, RtD, RsE, RtE;
   wire [4:0] WriteRegE, WriteRegM, WriteRegW;
   wire StallF, StallD, FlushE;
