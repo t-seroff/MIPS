@@ -26,46 +26,60 @@ module Hazard_detector(input clk,
 				  input MemReady,
 				  input MemWriteM,
 				  input clrBufferD,
-				  output reg FlushD);
-				  
+				  output FlushD,
+				  input BranchE,
+				  input PredictedE,
+				  output FixMispredict,
+				  input PCSrcE);
+	
+
 	wire lwstall, branchstall, multstall, memstall;
-
+	
+	// Add branch mispredict flush case - condition is Branch taken XOR predicted
+	// Needs to flush instructions in Decode and execute stages
+	// and enable FixMispredict to change PC of pipeline
+	assign FixMispredict = ((PCSrcE ^ PredictedE) && BranchE);
+	
+	//flag to flushJump after memstall is over
 	reg flushJump;
+	//flushD from a jump
+	reg flushDFromJump;
     //Stalls
-        assign branchstall = (BranchD && RegWriteE && (WriteRegE == RsD || WriteRegE == RtD)) 
-                            || (BranchD && MemtoRegM && (WriteRegM == RsD || WriteRegM == RtD));
+	assign branchstall = (BranchD && RegWriteE && (WriteRegE == RsD || WriteRegE == RtD)) 
+						|| (BranchD && MemtoRegM && (WriteRegM == RsD || WriteRegM == RtD));
 
-        assign lwstall = ((RsD == RtE) || (RtD == RtE)) && MemtoRegE;
-        
-        assign multstall = (((mfReg == 2'b01) || (mfReg == 2'b10)) && (!multReady || multStart));
+	assign lwstall = ((RsD == RtE) || (RtD == RtE)) && MemtoRegE;
+	
+	assign multstall = (((mfReg == 2'b01) || (mfReg == 2'b10)) && (!multReady || multStart));
 
-        assign memstall = (MemWriteM || MemtoRegM) && !(MemReady);
-    
-        assign StallF = lwstall || branchstall || multstall || memstall;
-        assign StallD = lwstall || branchstall || multstall || memstall;
-        assign FlushE = (lwstall || branchstall || multstall) && !memstall ;
-        assign StallE = memstall;
-        assign StallM = memstall;
-        assign FlushW = memstall;
-	  
+	assign memstall = (MemWriteM || MemtoRegM) && !(MemReady);
+
+	assign StallF = lwstall || branchstall || multstall || memstall;
+	assign StallD = lwstall || branchstall || multstall || memstall;
+	assign FlushE = (lwstall || branchstall || multstall || FixMispredict) && !memstall ;
+	assign StallE = memstall;
+	assign StallM = memstall;
+	assign FlushW = memstall;
+  
 	always @(*) begin
 		if(clrBufferD && memstall) begin
 			flushJump <= 1; 
-			FlushD <= 0;
+			flushDFromJump <= 0;
 		end
 		else if (clrBufferD && !memstall) begin
-			FlushD <= 1;
+			flushDFromJump <= 1;
 		end
 
 		if(flushJump && !memstall) begin
 			flushJump <= 0; 
-			FlushD <= 1;
+			flushDFromJump <= 1;
 		end
 		else if (!clrBufferD) begin
-			FlushD <= 0;
+			flushDFromJump <= 0;
 		end
-		
 	end
+
+	assign FlushD = flushDFromJump || FixMispredict;
 endmodule
 
 module Data_forwarding(input clk,

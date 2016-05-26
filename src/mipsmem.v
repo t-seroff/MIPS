@@ -27,7 +27,7 @@ module main_memory(input   clk, reset, read, wait_access,
             input   [127:0] write_data,
             output reg     MemReady);
 
-reg [127:0] RAM[268435455:0];
+reg [127:0] RAM[8191:0];
 reg        running;
 reg [4:0]  count;
 reg [4:0] wait_load;
@@ -85,7 +85,7 @@ module Inst_memory(input   [5:0]  address,
 
    initial
    begin
-      $readmemh("cachetest.dat",RAM); // initialize memory with test program. Change this with memfile2.dat for the modified code
+      $readmemh("memfile.dat",RAM); // initialize memory with test program. Change this with memfile2.dat for the modified code
    end
 
   assign read_data = RAM[address]; // word aligned

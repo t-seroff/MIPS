@@ -109,20 +109,35 @@ module decode_buffer(
 		input [31:0] InstrF,
 		input [31:0] PCPlus4F,
 		output reg [31:0] InstrD,
-		output reg [31:0] PCPlus4D);
+		output reg [31:0] PCPlus4D,
+		input EntryFoundF,
+		input [31:0] PredictedPCF,
+		input [31:0] PCF,
+		output reg EntryFoundD,
+		output reg [31:0] PredictedPCD,
+		output reg [31:0] PCD);
 
 always @ (posedge clk, posedge reset)
 	if (reset) begin
 		InstrD <= 32'h00000000;
 		PCPlus4D <= 32'h00000000;
+		EntryFoundD <= 1'b0;
+		PredictedPCD <= 32'h00000000;
+		PCD <= 32'h00000000;
 	end
 	else if (clr) begin
 		InstrD <= 32'h00000000;
 		PCPlus4D <= 32'h00000000;
+		EntryFoundD <= 1'b0;
+		PredictedPCD <= 32'h00000000;
+		PCD <= 32'h00000000;
 	end
 	else if (enable) begin
 		InstrD <=  InstrF;
 		PCPlus4D <= PCPlus4F;
+		EntryFoundD <= EntryFoundF;
+		PredictedPCD <= PredictedPCF;
+		PCD <= PCF;
 	end
 endmodule
 
@@ -143,7 +158,22 @@ module execute_buffer(
 		output reg ALUSrcE, RegDstE,
 		output reg [31:0] RD1E, RD2E, 
 		output reg [4:0] RsE, RtE, RdE,
-		output reg [31:0] SignImmE);
+		output reg [31:0] SignImmE,
+		input BranchD,
+		input EntryFoundD,
+		input [31:0] PredictedPCD,
+		input [31:0] PCD,
+		input [31:0] PCBranchD,
+		input [31:0] PCPlus4D,
+		output reg BranchE,
+		output reg EntryFoundE,
+		output reg [31:0] PredictedPCE,
+		output reg [31:0] PCE,
+		output reg [31:0] PCBranchE,
+		output reg [31:0] PCPlus4E,
+		input PCSrcD,
+		output reg PCSrcE
+		);
 
 always @ (posedge clk, posedge reset)
 	if (reset) begin
@@ -162,7 +192,13 @@ always @ (posedge clk, posedge reset)
 		RtE <= 4'h0;
 		RdE <= 4'h0;
 		SignImmE <= 32'h00000000;
-
+		BranchE <= 1'b0;
+		EntryFoundE <= 1'b0;
+		PredictedPCE <= 32'h00000000;
+		PCE <= 32'h00000000;
+		PCBranchE <= 32'h00000000;
+		PCPlus4E <= 32'h00000000;
+		PCSrcE <= 1'b0;
 	end
 	else if (clr) begin
 		startMultE <= 0;
@@ -180,7 +216,13 @@ always @ (posedge clk, posedge reset)
 		RtE <= 4'h0;
 		RdE <= 4'h0;
 		SignImmE <= 32'h00000000;
-
+		BranchE <= 1'b0;
+		EntryFoundE <= 1'b0;
+		PredictedPCE <= 32'h00000000;
+		PCE <= 32'h00000000;
+		PCBranchE <= 32'h00000000;
+		PCPlus4E <= 32'h00000000;
+		PCSrcE <= 1'b0;
 	end
 	else if (enable) begin
 		startMultE <= startMultD;
@@ -198,6 +240,13 @@ always @ (posedge clk, posedge reset)
 		RtE <= RtD;
 		RdE <= RdD;
 		SignImmE <= SignImmD;
+		BranchE <= BranchD;
+		EntryFoundE <= EntryFoundD;
+		PredictedPCE <= PredictedPCD;
+		PCE <= PCD;
+		PCBranchE <= PCBranchD;
+		PCPlus4E <= PCPlus4D;
+		PCSrcE <= PCSrcD;
 	end
 endmodule
 

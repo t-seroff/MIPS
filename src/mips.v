@@ -43,6 +43,8 @@ module mips(input          clk, reset,		// From testbench, to data path
   wire [1:0] mfRegE;
   wire StallE, StallM, FlushW;
   wire clrBufferD, FlushD;
+  wire BranchE, PredictedE, FixMispredict;
+  wire PCSrcE;
 
   datapath dp(clk, reset, 
               RegWriteD, MemtoRegD, MemWriteD,	// from control unit
@@ -61,7 +63,8 @@ module mips(input          clk, reset,		// From testbench, to data path
               ForwardAE, ForwardBE, JumpD,
 	       startMultD, signedMultD, mfRegD,
 	       multReady, mfRegE, startMultE, branchNE,
-	       StallE, StallM, FlushW, clrBufferD, FlushD
+	       StallE, StallM, FlushW, clrBufferD, FlushD,
+	       BranchE, PredictedE, FixMispredict, PCSrcE
               );    
 
 
@@ -91,7 +94,11 @@ module mips(input          clk, reset,		// From testbench, to data path
 				MemReady,
 				MemWriteM,
 				clrBufferD,
-				FlushD);
+				FlushD,
+				BranchE,
+				PredictedE,
+				FixMispredict,
+				PCSrcE);
 				
 	Data_forwarding forward(clk, 
                     RegWriteM,
@@ -175,17 +182,48 @@ module datapath(input          clk, reset,
 		 input StallM,
 		 input FlushW,
 		 output clrBufferD,
-		 input FlushD);
+		 input FlushD,
+		 output BranchE,
+		 output PredictedE,
+		 input FixMispredict,
+		 output PCSrcE);
+
+
+// BRANCH TARGET BUFFER
+// inputs
+wire [31:0] PCE, PCBranchE;
+// PCE = branch_address_in, PCBranchE = predicted_address_in
+wire BTBWriteE;
+//wire BranchE; // already an output
+
+//outputs
+wire EntryFoundF, EntryFoundE;
+wire [31:0] PredictedPCF;
+
+btb buffer(clk, reset, PCF, PCE, PCBranchE, BTBWriteE, PCSrcE, EntryFoundE, BranchE, EntryFoundF, PredictedPCF);
+// additional inputs: branch_address_in
+//		predicted_address_in (branch target address, because only added when taken
+//		btb_write	
+//		Update = "taken" => branchE
+//		Change = EntryFoundE
 
 
 // FETCH STAGE
 wire PCSrcD;
-wire [31:0] PCPlus4F, PCbranchD;
+wire [31:0] PCPlus4F, PCBranchD;
 wire [31:0] PCnext, PCnotjump;
 wire [31:0] PCJump;
+wire [31:0] PCMisprediction;
+wire [31:0] PCPlus4E;
+wire [31:0] PCPrediction;
 
-mux2 #(32) PCmux(PCPlus4F, PCbranchD, PCSrcD, PCnotjump);
-mux2 #(32) PCJumpmux(PCnotjump, PCJump, JumpD, PCnext);
+mux2 #(32) PCSourceMux(PCPlus4F, PredictedPCF, EntryFoundF, PCPrediction);
+mux2 #(32) PCBadPredictionMux(PCPlus4E, PCBranchE, PCSrcE, PCMisprediction);
+mux2 #(32) PCPredictionMux(PCPrediction, PCMisprediction, FixMispredict, PCnotjump);
+
+wire JumpNotBranch;
+assign JumpNotBranch = (JumpD && ~PCSrcE);
+mux2 #(32) PCJumpmux(PCnotjump, PCJump, JumpNotBranch, PCnext);
 
 wire notStallF;
 not stallFnot(notStallF, StallF);
@@ -202,9 +240,13 @@ wire [31:0] PCPlus4D;
 wire notStallD;
 not stallDnot(notStallD, StallD);
 
-assign clrBufferD = PCSrcD | JumpD;
+assign clrBufferD = JumpD;
 
-decode_buffer bufferD(clk, reset, FlushD, notStallD, InstrF, PCPlus4F, InstrD, PCPlus4D);
+wire EntryFoundD;
+wire [31:0] PredictedPCD, PCD;
+
+
+decode_buffer bufferD(clk, reset, FlushD, notStallD, InstrF, PCPlus4F, InstrD, PCPlus4D, EntryFoundF, PredictedPCF, PCF, EntryFoundD, PredictedPCD, PCD);
 
 wire [31:0] ResultW;
 wire [31:0] RD1D, RD2D;
@@ -215,7 +257,7 @@ wire EqualD, EqualOrNotEqualD;
 regfile rf(clk, RegWriteW, reset, InstrD[25:21], InstrD[20:16], WriteRegW, ResultW, RD1D, RD2D);
 signext se(InstrD[15:0], SignImmD);
 sl2 immsh(SignImmD, SignImmshD);
-adder PCadd2(PCPlus4D, SignImmshD, PCbranchD); 
+adder PCadd2(PCPlus4D, SignImmshD, PCBranchD); 
 
 // Determine if branching:
 mux2 #(32) PCmuxRD1(RD1D, ALUOutM, ForwardAD, RD1muxed);
@@ -243,6 +285,8 @@ wire [31:0] RD1E, RD2E;
 wire [31:0] SignImmE;
 wire [4:0]  RdE;
 
+wire [31:0] PredictedPCE;
+
 wire notStallE;
 not stallEnot(notStallE, StallE);
 
@@ -252,8 +296,19 @@ execute_buffer bufferE(clk, reset, FlushE, notStallE,
 	ALUSrcD, RegDstD, RD1D, RD2D, InstrD[25:21], InstrD[20:16], InstrD[15:11], SignImmD,
 	startMultE, signedMultE, mfRegE,
 	RegWriteE, MemtoRegE, MemWriteE, ALUControlE,
-	ALUSrcE, RegDstE, RD1E, RD2E, RsE, RtE, RdE, SignImmE);
+	ALUSrcE, RegDstE, RD1E, RD2E, RsE, RtE, RdE, SignImmE,
+	BranchD, EntryFoundD, PredictedPCD, PCD, PCBranchD, PCPlus4D, 
+	BranchE, EntryFoundE, PredictedPCE, PCE, PCBranchE, PCPlus4E,
+	PCSrcD, PCSrcE
+	);
 	
+
+equality prediction(PredictedPCE, PCBranchE, PredictedE);
+	// PredictedE = PredictedPCE == PCBranchE
+not EntryFoundNot(notEntryFoundE, EntryFoundE);
+and BTBWriteAnd(BTBWriteE, PCSrcE, notEntryFoundE);
+
+
 
 wire [31:0] srcaE, srcbE, WriteDataE;
 // wire [4:0] WriteRegE - will be output anyways
