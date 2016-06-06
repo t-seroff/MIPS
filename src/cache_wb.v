@@ -90,9 +90,12 @@ module cache_wb(input clk, reset, read, write, mem_ready,
 
 	wire hit;
 	assign hit = way_hit[0] | way_hit[1];
+
+	
 	
 	//if there is a hit, assign output_block to the way's output
-	reg [`BLOCK_SIZE_BITS-1:0] output_block;
+	wire [`BLOCK_SIZE_BITS-1:0] output_block;
+	assign output_block = (way_hit[0]) ? way_block[0] : way_block[1];
 		//select word from output_block
 	mux4 #(32) wordMux(output_block[31:0],
 						output_block[63:32],
@@ -155,10 +158,10 @@ module cache_wb(input clk, reset, read, write, mem_ready,
 				if(hit) begin
 					ready = 1;
 					if (way_hit[0]) begin
-						output_block <= way_block[0];
+						//output_block <= way_block[0];
 						use_way[index] = 1;
 					end else if(way_hit[1]) begin
-						output_block <= way_block[1];
+						//output_block <= way_block[1];
 						use_way[index] = 0;
 					end
 				end else begin

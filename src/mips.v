@@ -1,358 +1,286 @@
 // Pipelined MIPS processor
-// instantiates a controller, datapath module and hazard control unit
+// Top level system including MIPS and memories
+// Instantiates a controller, datapath module and hazard control unit
 
-module mips(input          clk, reset,		// From testbench, to data path
-            output  [31:0] PCF,			// To instruction memory, from datapath
-            input   [31:0] InstrF,			// From instruction memory, to datapath
-            output         MemWriteM,			// To data memory, from datapath
-            output  [31:0] ALUOutM, WriteDataM,	// To data memory, from datapath
-            input   [31:0] ReadDataM, 		// From data memory, to datapath
-            input          MemReady,			// From data memory, to datapath
-            output         MemtoRegM			// To data memory, from datapath
-            );			
+module mips(input clk, reset);		
+
+  // INSTRUCTION MEMORY	
+  wire [63:0] InstrF; 				// From instruction memory, to datapath
+  wire [31:0] PCMaster;
+  
+  (* dont_touch = "true" *) Inst_memory imem(PCMaster[7:2], InstrF);
+
+
+  // DATA MEMORY
+  // Multiplexed signals into data memory
+  wire MemoryUser;
+  //assign MemoryUser = 1'b0;
+  wire [31:0] WriteDataM_1, WriteDataM_2, WriteDataM_mux;	
+  wire [31:0] ALUOutM_1, ALUOutM_2, ALUOutM_mux;
+  wire        MemWriteM_1, MemWriteM_2, MemWriteM_mux;
+  wire        MemtoRegM_1, MemtoRegM_2, MemtoRegM_mux;
+  mux2 #(32) WriteDataMux(WriteDataM_1, WriteDataM_2, MemoryUser, WriteDataM_mux);
+  mux2 #(32) ALUOutMux(ALUOutM_1, ALUOutM_2, MemoryUser, ALUOutM_mux);
+  mux2 #(1) MemWriteMux(MemWriteM_1, MemWriteM_2, MemoryUser, MemWriteM_mux);
+  mux2 #(1) MemtoRegMux(MemtoRegM_1, MemtoRegM_2, MemoryUser, MemtoRegM_mux);
+
+  // Single outputs from data memory
+  wire [31:0] ReadDataM; 	// To datapath
+  wire        MemReady;	// To hazard unit
+
+
+  (* dont_touch = "true" *) Data_memory dmem(clk, reset, 
+		MemWriteM_mux, 		// multiplex
+		ALUOutM_mux, 		// multiplex
+		WriteDataM_mux, 	// multiplex
+		MemtoRegM_mux, 		// multiplex
+		ReadDataM, 		// Can go to both datapaths, will be ignored if irrelevant
+		MemReady		// Already goes to hazard unit, only one needed
+		);
 
   // Wires between everything
-  wire BranchD;
-
-  // Wires between control unit and datapath
-  wire         RegWriteD, MemtoRegD, MemWriteD,
-               ALUSrcD, RegDstD;
-  wire [3:0]   ALUControlD;
-  wire [31:0]  InstrD;
-  wire startMultD, signedMultD;
   wire [1:0]   mfRegD;
-  wire branchNE;
-  //wire         MemWriteM;
-  wire JumpD;
-
-  controller c(InstrD[31:26], InstrD[5:0], 
-               RegWriteD, MemtoRegD, MemWriteD,
-               ALUControlD, ALUSrcD, RegDstD,
-               BranchD, JumpD, startMultD, signedMultD, mfRegD, branchNE);
               
   // Wires between hazard/forwarding units and datapath
-  wire MemtoRegE, RegWriteE;
-  //wire MemtoRegM; // Now output to data memory
-  wire RegWriteM, RegWriteW;
-  wire [4:0] RsD, RtD, RsE, RtE;
-  wire [4:0] WriteRegE, WriteRegM, WriteRegW;
-  wire StallF, StallD, FlushE;
+  wire MemtoRegE_1, MemtoRegE_2;
+  wire RegWriteD_1, RegWriteD_2;
+  wire RegWriteE_1, RegWriteE_2;
+  wire [4:0] RsD_1, RtD_1, RsE_1, RtE_1;
+  wire [4:0] RsD_2, RtD_2, RsE_2, RtE_2;
+  wire [4:0] WriteRegD_1, WriteRegD_2; 
+  wire [4:0] WriteRegE_1, WriteRegE_2; 
+  wire [4:0] WriteRegM_1, WriteRegM_2;
+  wire StallF_1, StallF_2;
+  wire FlushD_1, FlushD_2;
+  wire StallD_1, StallD_2;
+  wire FlushE_1, FlushE_2;
+  wire StallE_1, StallE_2;
+  wire StallM_1, StallM_2;
+  wire FlushM_1, FlushM_2;
+  wire FlushW_1, FlushW_2;
+  wire BranchD_1, BranchD_2;
+
   wire ForwardAD, ForwardBD;
   wire [1:0] ForwardAE, ForwardBE;
+
   wire multReady, startMultE;
   wire [1:0] mfRegE;
-  wire StallE, StallM, FlushW;
-  wire clrBufferD, FlushD;
-  wire BranchE, PredictedE, FixMispredict;
-  wire PCSrcE;
 
-  datapath dp(clk, reset, 
-              RegWriteD, MemtoRegD, MemWriteD,	// from control unit
-              ALUControlD, ALUSrcD, RegDstD,		// from control unit
-              BranchD,                               // from control unit
-              InstrD,					// to control unit
-              PCF, InstrF,                           // to/from instruction memory
-              ALUOutM, WriteDataM, 
-              MemWriteM, ReadDataM,
-              MemtoRegE, RegWriteE, MemtoRegM,
-              RegWriteM, RegWriteW,
-              RsD, RtD, RsE, RtE,
-              WriteRegE, WriteRegM, WriteRegW,
-              StallF, StallD, FlushE,
+  wire clrBufferD_1, clrBufferD_2;
+  wire PredictedE_1, PredictedE_2;
+  wire RegWriteM_1, RegWriteM_2;
+
+  // Branching wires from datapaths to hazard unit
+  wire 	PCSrcE_1, PCSrcE_2;
+  wire Predicted_Taken_D1, Predicted_Taken_D2;
+  wire EntryFoundD_1, EntryFoundD_2;
+  wire [31:0] InstrE_1, InstrE_2;
+  wire [31:0] InstrM_1, InstrM_2;
+
+  // Between datapaths, register file, and hazard unit
+  wire [31:0] InstrD_1, InstrD_2;
+
+
+  // Hazard unit will need to accept BOTH wires
+  wire RegWriteW_1, RegWriteW_2;
+  wire [4:0] WriteRegW_1, WriteRegW_2;
+
+  // wires between datapath ONE and register file
+  wire [31:0] ResultW_1, RD1D_1, RD2D_1;
+
+  // wires between datapath TWO and register file
+  wire [31:0] ResultW_2, RD1D_2, RD2D_2;
+
+  regfile rf(		clk, 	
+			RegWriteW_1, RegWriteW_2, 
+			reset, 
+			InstrD_1[25:21], InstrD_2[25:21], 	// Done
+			InstrD_1[20:16], InstrD_2[20:16],	// Done
+			WriteRegW_1, WriteRegW_2, 
+			ResultW_1, ResultW_2, 			// Done
+			RD1D_1, RD1D_2,				// Done
+			RD2D_1, RD2D_2				// Done
+			);
+
+
+// MERGED FETCH STAGE
+  wire [31:0] PCNext;
+  wire [31:0] PCMasterPlus8;
+
+  wire StallBothAtFetch;
+  wire notStallPC;
+  not PCnot(notStallPC, StallBothAtFetch);
+  reset_enable_ff #(32) PCreg(clk, reset, notStallPC, PCNext, PCMaster); 
+  adder PCadd1(PCMaster, 32'b1000, PCMasterPlus8);
+
+  // Needed for second datapath to calculate branch addresses
+  wire [31:0] PCMasterPlus4;
+  adder PCadd2(PCMaster, 32'b0100, PCMasterPlus4);
+
+// BRANCHING
+  // BTB Inputs, from datapaths
+  wire [31:0] PCE_1, PCE_2, PCBranchE_1, PCBranchE_2;
+  wire BTBWriteE_1, BTBWriteE_2;
+  wire EntryFoundE_1, EntryFoundE_2;
+  wire BranchE_1, BranchE_2;
+  wire Predicted_Taken_F1, Predicted_Taken_F2;
+
+  // BTB outputs
+  wire EntryFoundF_1, EntryFoundF_2;
+  wire [31:0] PredictedPCF_1, PredictedPCF_2;
+
+  // Choosing PC predicted by BTB
+  wire [31:0] PCPrediction;
+  wire [1:0] EntryFoundCombined;
+  assign EntryFoundCombined = {EntryFoundF_1, EntryFoundF_2};
+  mux4 #(32) PCPredictionMux(PCMasterPlus8, PredictedPCF_2, PredictedPCF_1, PredictedPCF_1, EntryFoundCombined, PCPrediction);
+
+  // Choosing PC for fixing mispredictions
+  wire FixMispredict, FixMispredict_1, FixMispredict_2;
+  assign FixMispredict = FixMispredict_1 || FixMispredict_2;
+  wire [31:0] PCPlus4E_1, PCPlus4E_2;
+  wire [31:0] PCMisprediction; // After mux
+  wire [31:0] PCMisprediction_P1, PCMisprediction_P2; // Preliminary muxed signals
+  mux2 #(32) PCMispredictionMux_P1(PCPlus4E_1, PCBranchE_1, PCSrcE_1, PCMisprediction_P1);
+  mux2 #(32) PCMispredictionMux_P2(PCPlus4E_2, PCBranchE_2, PCSrcE_2, PCMisprediction_P2);
+  mux2 #(32) PCMispredictionMux_PipelineSelector(PCMisprediction_P1, PCMisprediction_P2, FixMispredict_2, PCMisprediction);
+
+  // Choosing final PC from branching operations
+  wire [31:0] PCBranching;
+  mux2 #(32) PCBranchMux(PCPrediction, PCMisprediction, FixMispredict, PCBranching);
+
+// JUMPING
+  wire [31:0] PCJump_1, PCJump_2, PCJump_muxed;
+
+  mux2 #(32) PCJumpMux(PCJump_1, PCJump_2, clrBufferD_2, PCJump_muxed);
+
+  wire JumpOrBranch;
+  assign JumpOrBranch = ((clrBufferD_1 || clrBufferD_2) && !(PCSrcE_1 || PCSrcE_2));			//assign JumpNotBranch = (JumpD && ~PCSrcE);
+  mux2 #(32) PCSourceMux(PCBranching, PCJump_muxed, JumpOrBranch, PCNext);
+
+
+  // BRANCH TARGET BUFFER
+  btb buffer(clk, reset, PCMaster, PCMasterPlus4, PCE_1, PCE_2, PCBranchE_1, PCBranchE_2, BTBWriteE_1, BTBWriteE_2, PCSrcE_1, PCSrcE_2, EntryFoundE_1, EntryFoundE_2, BranchE_1, BranchE_2, EntryFoundF_1, EntryFoundF_2, PredictedPCF_1, PredictedPCF_2, Predicted_Taken_F1, Predicted_Taken_F2);
+
+
+  datapath dp_1(clk, reset, 
+		RegWriteD_1,
+              BranchD_1,                               // to hazard unit
+              PCMaster, InstrF[31:0],                    // to/from instruction memory
+              ALUOutM_1, WriteDataM_1, 
+              MemWriteM_1, 
+	       ReadDataM, 				// Single from data memory
+              MemtoRegE_1, RegWriteE_1, MemtoRegM_1,
+              RegWriteM_1, RegWriteW_1,
+              RsD_1, RtD_1, RsE_1, RtE_1,
+              WriteRegD_1, WriteRegE_1, WriteRegM_1, WriteRegW_1,
+
+              StallF_1, StallD_1, FlushE_1,
               ForwardAD, ForwardBD,
-              ForwardAE, ForwardBE, JumpD,
-	       startMultD, signedMultD, mfRegD,
-	       multReady, mfRegE, startMultE, branchNE,
-	       StallE, StallM, FlushW, clrBufferD, FlushD,
-	       BranchE, PredictedE, FixMispredict, PCSrcE
+              ForwardAE, ForwardBE, 
+
+	       mfRegD,
+	       multReady, mfRegE, startMultE, 
+
+	       StallE_1, StallM_1, FlushW_1, clrBufferD_1, FlushD_1,
+
+	       BranchE_1, PredictedE_1, FixMispredict_1, PCSrcE_1, 
+
+	       ResultW_1, RD1D_1, RD2D_1, FlushM_1,
+		PCE_1, PCBranchE_1, BTBWriteE_1, EntryFoundE_1, PredictedPCF_1,
+
+		Predicted_Taken_F1,
+		Predicted_Taken_D1, EntryFoundD_1, InstrD_1, InstrE_1, InstrM_1,
+		PCPlus4E_1,
+
+		PCJump_1, EntryFoundF_1
               );    
 
+  datapath dp_2(clk, reset, 
+	       RegWriteD_2,
+              BranchD_2,                               	// to hazard unit
+              PCMasterPlus4, InstrF[63:32],                  // to/from instruction memory
+              ALUOutM_2, WriteDataM_2, 
+              MemWriteM_2, 
+		ReadDataM,					// okay
+              MemtoRegE_2, RegWriteE_2, MemtoRegM_2,
+              RegWriteM_2, RegWriteW_2,
+              RsD_2, RtD_2, RsE_2, RtE_2,
+              WriteRegD_2, WriteRegE_2, WriteRegM_2, WriteRegW_2,
 
-  Hazard_detector hazard(clk, 
-				BranchD,
-				MemtoRegE,
-				RegWriteE,
-				MemtoRegM,
-				RegWriteM,
-				RegWriteW,
-				RsD,
-				RtD,
-				RsE,
-				RtE,
-				WriteRegE,
-				WriteRegM,
-				WriteRegW,
-				StallF,
-				StallD,
-				FlushE,
+              StallF_2, StallD_2, FlushE_2,
+              ForwardAD, ForwardBD,
+              ForwardAE, ForwardBE, 
+
+	       mfRegD,
+	       multReady, mfRegE, startMultE, 
+
+	       StallE_2, StallM_2, FlushW_2, clrBufferD_2, FlushD_2,
+
+	       BranchE_2, PredictedE_2, FixMispredict_2, PCSrcE_2, 
+
+	       ResultW_2, RD1D_2, RD2D_2, FlushM_2,
+		PCE_2, PCBranchE_2, BTBWriteE_2, EntryFoundE_2, PredictedPCF_2,
+	
+		Predicted_Taken_F2,
+		Predicted_Taken_D2, EntryFoundD_2, InstrD_2, InstrE_2, InstrM_2,
+		PCPlus4E_2,
+
+		PCJump_2, EntryFoundF_2
+              );
+
+
+  Hazard_detector hazard(clk, reset,
+				BranchD_2,
+				MemtoRegE_1, MemtoRegE_2,
+				RegWriteD_1,
+				RegWriteE_1, RegWriteE_2,
+				MemtoRegM_1, MemtoRegM_2,
+				RegWriteM_1, RegWriteM_2,
+				RegWriteW_1, RegWriteW_2,
+				RsD_1, RsD_2,
+				RtD_1, RtD_2,
+				RsE_1, RsE_2,
+				RtE_1, RtE_2,
+				WriteRegD_1,
+				WriteRegE_1, WriteRegE_2,
+				WriteRegM_1, WriteRegM_2,
+				WriteRegW_1, WriteRegW_2,
+
+				StallF_1, StallF_2,
+				StallD_1, StallD_2, 
+				FlushE_1, FlushE_2, 
+
 				multReady,
 				mfRegD,
 				startMultE,
-				StallE,
-				StallM,
-				FlushW,
+
+				StallE_1, StallE_2,
+				StallM_1, StallM_2,
+				FlushM_1, FlushM_2,
+				FlushW_1, FlushW_2,
 				MemReady,
-				MemWriteM,
-				clrBufferD,
-				FlushD,
-				BranchE,
-				PredictedE,
-				FixMispredict,
-				PCSrcE);
-				
-	Data_forwarding forward(clk, 
-                    RegWriteM,
-                    RegWriteW,
-                    RsD,
-                    RtD,
-                    RsE,
-                    RtE,
-                    WriteRegM,
-                    WriteRegW,
-                    ForwardAD,
-                    ForwardBD,
-                    ForwardAE, 
-                    ForwardBE);
+				MemWriteM_1,
+
+				clrBufferD_1, clrBufferD_2,
+				FlushD_1, FlushD_2,
+
+				BranchE_1, BranchE_2,
+				PredictedE_1, PredictedE_2,
+				FixMispredict_1, FixMispredict_2,
+				PCSrcE_1, PCSrcE_2, 
+
+				Predicted_Taken_D1, Predicted_Taken_D2,
+				EntryFoundD_1, EntryFoundD_2,
+				InstrD_1, InstrD_2,
+				InstrE_1, InstrE_2,
+				InstrM_1, InstrM_2,
+
+				ForwardAD, ForwardBD,
+				ForwardAE, ForwardBE,
+				StallBothAtFetch, MemoryUser,
+				MemWriteM_1, MemWriteM_2
+				);
 
    
 endmodule
-
-
-// Controller module
-module controller(input   [5:0] op, funct,
-                  output        RegWrite, MemtoReg,
-                  output        MemWrite, 
-                  output  [3:0] ALUControl,
-                  output        ALUSrc, RegDst,
-                  output        branch,
-		   output 	  jump,
-		   output        startMult, signedMult, 
-		   output  [1:0] mfReg,
-			output branchNE);
-
-wire [3:0] aluop;
-
-mainDecoder dec(op, MemtoReg, MemWrite, branch, ALUSrc, RegDst, RegWrite, jump, aluop, branchNE);
-aluDecoder aluDec(funct, aluop, ALUControl, startMult, signedMult, mfReg);
-
-// assuming that "branch" from single-cycle decoder equivalent to branchD in pipelined
-endmodule
-
-
-// Datapath
-module datapath(input          clk, reset,
-                input          RegWriteD, MemtoRegD,         
-                input          MemWriteD,
-                input   [3:0]  ALUControlD,
-                input          ALUSrcD, RegDstD,
-                input          BranchD,
-                output  [31:0] InstrD,
-                output  [31:0] PCF,
-                input   [31:0] InstrF,
-                output  [31:0] ALUOutM, WriteDataM,
-                output         MemWriteM,
-                input   [31:0] ReadDataM,
-		 output MemtoRegE,
-		 output RegWriteE,
-		 output MemtoRegM,
-		 output RegWriteM,
-		 output RegWriteW,
-		 output [4:0] RsD,
-		 output [4:0] RtD,
-		 output [4:0] RsE,
-		 output [4:0] RtE,
-		 output [4:0] WriteRegE,
-		 output [4:0] WriteRegM,
-		 output [4:0] WriteRegW,
-		 input StallF,
-		 input StallD,
-		 input FlushE,
-		 input ForwardAD,
-		 input ForwardBD,
-		 input [1:0] ForwardAE, 
-		 input [1:0] ForwardBE,
-		 input JumpD,
-		 input startMultD, signedMultD, 
-		 input [1:0] mfRegD,
-		 output multReady,
-		 output [1:0] mfRegE,
-		 output startMultE,
-		 input branchNE,
-		 input StallE,
-		 input StallM,
-		 input FlushW,
-		 output clrBufferD,
-		 input FlushD,
-		 output BranchE,
-		 output PredictedE,
-		 input FixMispredict,
-		 output PCSrcE);
-
-
-// BRANCH TARGET BUFFER
-// inputs
-wire [31:0] PCE, PCBranchE;
-// PCE = branch_address_in, PCBranchE = predicted_address_in
-wire BTBWriteE;
-//wire BranchE; // already an output
-
-//outputs
-wire EntryFoundF, EntryFoundE;
-wire [31:0] PredictedPCF;
-
-btb buffer(clk, reset, PCF, PCE, PCBranchE, BTBWriteE, PCSrcE, EntryFoundE, BranchE, EntryFoundF, PredictedPCF);
-// additional inputs: branch_address_in
-//		predicted_address_in (branch target address, because only added when taken
-//		btb_write	
-//		Update = "taken" => branchE
-//		Change = EntryFoundE
-
-
-// FETCH STAGE
-wire PCSrcD;
-wire [31:0] PCPlus4F, PCBranchD;
-wire [31:0] PCnext, PCnotjump;
-wire [31:0] PCJump;
-wire [31:0] PCMisprediction;
-wire [31:0] PCPlus4E;
-wire [31:0] PCPrediction;
-
-mux2 #(32) PCSourceMux(PCPlus4F, PredictedPCF, EntryFoundF, PCPrediction);
-mux2 #(32) PCBadPredictionMux(PCPlus4E, PCBranchE, PCSrcE, PCMisprediction);
-mux2 #(32) PCPredictionMux(PCPrediction, PCMisprediction, FixMispredict, PCnotjump);
-
-wire JumpNotBranch;
-assign JumpNotBranch = (JumpD && ~PCSrcE);
-mux2 #(32) PCJumpmux(PCnotjump, PCJump, JumpNotBranch, PCnext);
-
-wire notStallF;
-not stallFnot(notStallF, StallF);
-reset_enable_ff #(32) PCreg(clk, reset, notStallF, PCnext, PCF); 
-
-// PCF goes out to instruction memory, InstrF comes back from instruction memory
-adder PCadd1(PCF, 32'b100, PCPlus4F);
-
-
-
-// DECODE STAGE
-wire [31:0] PCPlus4D;
-
-wire notStallD;
-not stallDnot(notStallD, StallD);
-
-assign clrBufferD = JumpD;
-
-wire EntryFoundD;
-wire [31:0] PredictedPCD, PCD;
-
-
-decode_buffer bufferD(clk, reset, FlushD, notStallD, InstrF, PCPlus4F, InstrD, PCPlus4D, EntryFoundF, PredictedPCF, PCF, EntryFoundD, PredictedPCD, PCD);
-
-wire [31:0] ResultW;
-wire [31:0] RD1D, RD2D;
-wire [31:0] SignImmD, SignImmshD;
-wire [31:0] RD1muxed, RD2muxed;
-wire EqualD, EqualOrNotEqualD;
-
-regfile rf(clk, RegWriteW, reset, InstrD[25:21], InstrD[20:16], WriteRegW, ResultW, RD1D, RD2D);
-signext se(InstrD[15:0], SignImmD);
-sl2 immsh(SignImmD, SignImmshD);
-adder PCadd2(PCPlus4D, SignImmshD, PCBranchD); 
-
-// Determine if branching:
-mux2 #(32) PCmuxRD1(RD1D, ALUOutM, ForwardAD, RD1muxed);
-mux2 #(32) PCmuxRD2(RD2D, ALUOutM, ForwardBD, RD2muxed);
-
-// For Jump
-assign PCJump = {PCPlus4D[31:28], InstrD[25:0], 2'b00};
-
-equality equals(RD1muxed, RD2muxed, EqualD);
-assign EqualOrNotEqualD = (branchNE) ? ~EqualD : EqualD;
-and PCsrcand(PCSrcD, BranchD, EqualOrNotEqualD);
-
-assign RsD = InstrD[25:21];
-assign RtD = InstrD[20:16];
-assign RdD = InstrD[15:11];
-
-// EXECUTE STAGE
-wire         signedMultE;
-//wire [1:0]  mfRegE;
-//wire        RegWriteE, MemtoRegE; 
-wire        MemWriteE, ALUSrcE, RegDstE;
-wire [3:0]  ALUControlE;
-wire [31:0] ALUOutE;
-wire [31:0] RD1E, RD2E;
-wire [31:0] SignImmE;
-wire [4:0]  RdE;
-
-wire [31:0] PredictedPCE;
-
-wire notStallE;
-not stallEnot(notStallE, StallE);
-
-execute_buffer bufferE(clk, reset, FlushE, notStallE,
-	startMultD, signedMultD, mfRegD,
-	RegWriteD, MemtoRegD, MemWriteD, ALUControlD,
-	ALUSrcD, RegDstD, RD1D, RD2D, InstrD[25:21], InstrD[20:16], InstrD[15:11], SignImmD,
-	startMultE, signedMultE, mfRegE,
-	RegWriteE, MemtoRegE, MemWriteE, ALUControlE,
-	ALUSrcE, RegDstE, RD1E, RD2E, RsE, RtE, RdE, SignImmE,
-	BranchD, EntryFoundD, PredictedPCD, PCD, PCBranchD, PCPlus4D, 
-	BranchE, EntryFoundE, PredictedPCE, PCE, PCBranchE, PCPlus4E,
-	PCSrcD, PCSrcE
-	);
-	
-
-equality prediction(PredictedPCE, PCBranchE, PredictedE);
-	// PredictedE = PredictedPCE == PCBranchE
-not EntryFoundNot(notEntryFoundE, EntryFoundE);
-and BTBWriteAnd(BTBWriteE, PCSrcE, notEntryFoundE);
-
-
-
-wire [31:0] srcaE, srcbE, WriteDataE;
-// wire [4:0] WriteRegE - will be output anyways
-
-mux2 #(5) WriteRegEmux(RtE, RdE, RegDstE, WriteRegE);
-
-mux4 #(32) srcaEmux(RD1E, ResultW, ALUOutM, 32'h00000000, ForwardAE, srcaE);
-mux4 #(32) WriteDataEmux(RD2E, ResultW, ALUOutM, 32'h00000000, ForwardBE, WriteDataE);
-mux2 #(32) srcbEmux(WriteDataE, SignImmE, ALUSrcE, srcbE);
-
-wire [31:0] ALUOut;
-alu alu(srcaE, srcbE, ALUControlE, ALUOut);
-
-wire [63:0] MultOut;
-multiplier mult(srcaE, srcbE, startMultE, signedMultE, clk, reset, MultOut, multReady);
-
-mux4 #(32) resultMux(ALUOut, MultOut[31:0], MultOut[63:32], 32'h00000000, mfRegE, ALUOutE);
-
-// MEMORY STAGE
-
-wire notStallM;
-not stallMnot(notStallM, StallM);
-
-memory_buffer bufferM(clk, reset, notStallM,
-	RegWriteE, MemtoRegE, MemWriteE, ALUOutE, WriteDataE, WriteRegE,
-	RegWriteM, MemtoRegM, MemWriteM, ALUOutM, WriteDataM, WriteRegM);
-
-// (nothing actually needed here!)
-
-
-
-// WRITEBACK STAGE
-wire        MemtoRegW;
-wire [31:0] ReadDataW, ALUOutW;
-
-
-writeback_buffer bufferW(clk, reset, FlushW,
-	RegWriteM, MemtoRegM, ReadDataM, ALUOutM, WriteRegM,
-	RegWriteW, MemtoRegW, ReadDataW, ALUOutW, WriteRegW);
-
-mux2 #(32)  resultmux(ALUOutW, ReadDataW, MemtoRegW, ResultW);
-
-
-endmodule
-
-
-

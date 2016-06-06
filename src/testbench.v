@@ -1,7 +1,7 @@
 module testbench();
 reg clk, reset;
 wire [31:0] instr;
-top uut(clk, reset);
+mips uut(clk, reset);
 
 
 initial begin

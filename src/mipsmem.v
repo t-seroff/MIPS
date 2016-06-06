@@ -34,6 +34,11 @@ reg [4:0] wait_load;
 // Old read behavior
 //assign read_data = RAM[read_address[31:2]];
 
+
+reg [31:0] write_address_save;
+reg [127:0] write_data_save;
+reg [31:0] read_address_save;
+
 always @(posedge clk) begin
 	// Old write behavior
 
@@ -46,6 +51,9 @@ always @(posedge clk) begin
 		wait_load = 0;
 	end
 	else if (wait_access && !(running)) begin
+		write_address_save <= write_address;
+		write_data_save <= write_data;
+		read_address_save <= read_address;
 		running <= 1'b1;
 		count <= 5'b00001;
 		MemReady <= 1'b0;
@@ -61,10 +69,10 @@ always @(posedge clk) begin
 				wait_load = 0;
 			end else begin
 				if (write) begin
-					RAM[write_address[31:4]] <= write_data;
+					RAM[write_address_save[31:4]] <= write_data_save;
 				end
 				if (read) begin
-					read_data <= RAM[read_address[31:4]];
+					read_data <= RAM[read_address_save[31:4]];
 				end
 				MemReady <= 1'b0;
 				wait_load = wait_load+1;
@@ -79,15 +87,16 @@ endmodule
 
 // Instruction memory (already implemented)
 module Inst_memory(input   [5:0]  address,
-            output  [31:0] read_data);
+            output  [63:0] read_data);
 
    (* ram_style = "block" *) reg [31:0] RAM[1023:0];
 
    initial
    begin
-      $readmemh("memfile.dat",RAM); // initialize memory with test program. Change this with memfile2.dat for the modified code
+      $readmemh("test.dat",RAM); // initialize memory with test program. Change this with memfile2.dat for the modified code
    end
 
-  assign read_data = RAM[address]; // word aligned
+  assign read_data[31:0] = RAM[address]; // word aligned
+  assign read_data[63:32] = RAM[address+1];
 endmodule
 
